@@ -1,184 +1,353 @@
 import { supabase } from '../../infrastructure/supabaseClient.js';
-import { User, UserResponse } from '../types/index.js';
+import { 
+  TicketHeader, 
+  TicketDetail, 
+  TicketCreateInput, 
+  TicketUpdateInput,
+  TicketStatus,
+  TicketPriority 
+} from '../types/index.js';
 
-export class UserService {
+export class TicketService {
   /**
-   * Obtener o crear usuario en tb_user
-   * Se llama después de autenticación con Google
+   * RFU-2: Crear un nuevo ticket
    */
-  async getOrCreateUser(userData: {
-    id: string;
-    email: string;
-    fullName: string;
-    avatarUrl?: string;
-  }): Promise<UserResponse> {
-    // Intentar obtener el usuario existente
-    const { data: existingUser, error: fetchError } = await supabase
-      .from('tb_user')
-      .select('*')
-      .eq('id', userData.id)
-      .single();
-
-    // Si existe, retornarlo
-    if (existingUser && !fetchError) {
-      return existingUser;
-    }
-
-    // Si no existe, crearlo con rol_id = 1 (Usuario por defecto)
-    const { data: newUser, error: createError } = await supabase
-      .from('tb_user')
+  async createTicket(userId: string, input: TicketCreateInput): Promise<TicketHeader> {
+    const { data, error } = await supabase
+      .from('md_ticket_header')
       .insert({
-        id: userData.id,
-        name: userData.fullName,
-        email: userData.email,
-        rol_id: 1, // Rol Usuario por defecto
-        sw_active: 1, // Activo por defecto
-        job_title: 'Empleado'
+        user_id: userId,
+        title: input.title,
+        description: input.description,
+        category_id: input.category_id,
+        priority_id: input.priority_id,
+        sw_status: TicketStatus.ABIERTO // Estado inicial: Abierto
       })
       .select()
       .single();
 
-    if (createError) {
-      throw new Error(`Error al crear usuario: ${createError.message}`);
-    }
-
-    return newUser;
-  }
-
-  /**
-   * Obtener un usuario por ID
-   */
-  async getUserById(userId: string): Promise<UserResponse | null> {
-    const { data, error } = await supabase
-      .from('tb_user')
-      .select('*')
-      .eq('id', userId)
-      .eq('sw_active', 1) // Solo usuarios activos
-      .single();
-
     if (error) {
-      if (error.code === 'PGRST116') return null; // No encontrado
-      throw new Error(`Error al obtener usuario: ${error.message}`);
+      throw new Error(`Error al crear ticket: ${error.message}`);
     }
+
+    // Crear el primer registro en ticket_detail
+    await this.createTicketDetail(data.id, {
+      sw_status: TicketStatus.ABIERTO,
+      description: 'Ticket creado'
+    });
 
     return data;
   }
 
   /**
-   * Obtener todos los usuarios (solo para Administradores)
+   * RFU-4: Obtener todos los tickets de un usuario
    */
-  async getAllUsers(): Promise<UserResponse[]> {
+  async getUserTickets(userId: string): Promise<any[]> {
     const { data, error } = await supabase
-      .from('tb_user')
-      .select('*')
+      .from('md_ticket_header')
+      .select(`
+        *,
+        tb_category!md_ticket_header_category_id_fkey (
+          id,
+          name
+        ),
+        tb_priority!md_ticket_header_priority_id_fkey (
+          id,
+          description
+        ),
+        tb_user!md_ticket_header_user_id_fkey (
+          id,
+          name,
+          email
+        )
+      `)
+      .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
     if (error) {
-      throw new Error(`Error al obtener usuarios: ${error.message}`);
+      throw new Error(`Error al obtener tickets: ${error.message}`);
     }
 
     return data;
   }
 
   /**
-   * Obtener todos los agentes (rol_id = 2 o 3)
-   * Asumiendo: 1 = Usuario, 2 = Agente, 3 = Administrador
+   * RFA-1: Obtener todos los tickets (para agentes)
    */
-  async getAgentes(): Promise<UserResponse[]> {
-    const { data, error } = await supabase
-      .from('tb_user')
-      .select('*')
-      .in('rol_id', [2, 3]) // Agentes y Administradores
-      .eq('sw_active', 1)
-      .order('name', { ascending: true });
+  async getAllTickets(filters?: {
+    sw_status?: TicketStatus;
+    priority_id?: TicketPriority;
+    category_id?: number;
+  }): Promise<any[]> {
+    let query = supabase
+      .from('md_ticket_header')
+      .select(`
+        *,
+        tb_category!md_ticket_header_category_id_fkey (
+          id,
+          name
+        ),
+        tb_priority!md_ticket_header_priority_id_fkey (
+          id,
+          description
+        ),
+        tb_user!md_ticket_header_user_id_fkey (
+          id,
+          name,
+          email
+        )
+      `);
+
+    // Aplicar filtros si existen (RFA-2)
+    if (filters?.sw_status !== undefined) {
+      query = query.eq('sw_status', filters.sw_status);
+    }
+    if (filters?.priority_id !== undefined) {
+      query = query.eq('priority_id', filters.priority_id);
+    }
+    if (filters?.category_id !== undefined) {
+      query = query.eq('category_id', filters.category_id);
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
-      throw new Error(`Error al obtener agentes: ${error.message}`);
+      throw new Error(`Error al obtener tickets: ${error.message}`);
     }
 
     return data;
   }
 
   /**
-   * Actualizar el rol de un usuario
+   * RFU-5: Obtener un ticket por ID con todos sus detalles
    */
-  async updateUserRole(userId: string, newRolId: number): Promise<UserResponse> {
+  async getTicketById(ticketId: string): Promise<any> {
     const { data, error } = await supabase
-      .from('tb_user')
-      .update({ rol_id: newRolId })
-      .eq('id', userId)
-      .select()
+      .from('md_ticket_header')
+      .select(`
+        *,
+        tb_category!md_ticket_header_category_id_fkey (
+          id,
+          name
+        ),
+        tb_priority!md_ticket_header_priority_id_fkey (
+          id,
+          description
+        ),
+        tb_user!md_ticket_header_user_id_fkey (
+          id,
+          name,
+          email
+        )
+      `)
+      .eq('id', ticketId)
       .single();
 
     if (error) {
-      throw new Error(`Error al actualizar rol: ${error.message}`);
+      throw new Error(`Error al obtener ticket: ${error.message}`);
+    }
+
+    // Obtener historial de cambios (ticket_detail)
+    const details = await this.getTicketHistory(ticketId);
+
+    return {
+      ...data,
+      history: details
+    };
+  }
+
+  /**
+   * Obtener historial de cambios de un ticket
+   */
+  async getTicketHistory(ticketId: string): Promise<any[]> {
+    const { data, error } = await supabase
+      .from('md_ticket_detail')
+      .select(`
+        *,
+        tb_user!md_ticket_detail_assigned_user_id_fkey (
+          id,
+          name,
+          email
+        )
+      `)
+      .eq('ticket_header_id', ticketId)
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      throw new Error(`Error al obtener historial: ${error.message}`);
     }
 
     return data;
   }
 
   /**
-   * Actualizar perfil del usuario
+   * RFA-3: Asignar ticket a un agente
    */
-  async updateUserProfile(
-    userId: string, 
-    updates: { name?: string; job_title?: string }
-  ): Promise<UserResponse> {
-    const { data, error } = await supabase
-      .from('tb_user')
+  async assignTicket(ticketId: string, agentId: string): Promise<void> {
+    // Actualizar el estado a ASIGNADO en header
+    const { error: headerError } = await supabase
+      .from('md_ticket_header')
+      .update({ sw_status: TicketStatus.ASIGNADO })
+      .eq('id', ticketId);
+
+    if (headerError) {
+      throw new Error(`Error al asignar ticket: ${headerError.message}`);
+    }
+
+    // Crear registro en ticket_detail
+    await this.createTicketDetail(ticketId, {
+      sw_status: TicketStatus.ASIGNADO,
+      assigned_user_id: agentId,
+      description: 'Ticket asignado a agente'
+    });
+  }
+
+  /**
+   * RFA-4: Cambiar estado del ticket
+   */
+  async updateTicketStatus(
+    ticketId: string, 
+    newStatus: TicketStatus,
+    description?: string
+  ): Promise<void> {
+    // Actualizar estado en header
+    const { error: headerError } = await supabase
+      .from('md_ticket_header')
+      .update({ sw_status: newStatus })
+      .eq('id', ticketId);
+
+    if (headerError) {
+      throw new Error(`Error al actualizar estado: ${headerError.message}`);
+    }
+
+    // Crear registro en ticket_detail
+    await this.createTicketDetail(ticketId, {
+      sw_status: newStatus,
+      description: description || 'Cambio de estado'
+    });
+  }
+
+  /**
+   * RFA-5: Actualizar prioridad del ticket
+   */
+  async updateTicketPriority(
+    ticketId: string, 
+    newPriority: TicketPriority
+  ): Promise<void> {
+    const { error } = await supabase
+      .from('md_ticket_header')
+      .update({ priority_id: newPriority })
+      .eq('id', ticketId);
+
+    if (error) {
+      throw new Error(`Error al actualizar prioridad: ${error.message}`);
+    }
+
+    // Crear registro en ticket_detail
+    await this.createTicketDetail(ticketId, {
+      sw_status: null as any, // Mantener estado actual
+      description: 'Prioridad actualizada'
+    });
+  }
+
+  /**
+   * RFA-6: Actualizar categoría del ticket
+   */
+  async updateTicketCategory(
+    ticketId: string, 
+    newCategoryId: number
+  ): Promise<void> {
+    const { error } = await supabase
+      .from('md_ticket_header')
+      .update({ category_id: newCategoryId })
+      .eq('id', ticketId);
+
+    if (error) {
+      throw new Error(`Error al actualizar categoría: ${error.message}`);
+    }
+  }
+
+  /**
+   * RFU-8: Usuario devuelve un ticket (no conforme con la solución)
+   */
+  async returnTicket(ticketId: string, reason: string): Promise<void> {
+    await this.updateTicketStatus(ticketId, TicketStatus.DEVUELTO, reason);
+  }
+
+  /**
+   * Actualizar ticket completo
+   */
+  async updateTicket(ticketId: string, updates: TicketUpdateInput): Promise<void> {
+    const { error } = await supabase
+      .from('md_ticket_header')
       .update(updates)
-      .eq('id', userId)
-      .select()
-      .single();
+      .eq('id', ticketId);
 
     if (error) {
-      throw new Error(`Error al actualizar perfil: ${error.message}`);
+      throw new Error(`Error al actualizar ticket: ${error.message}`);
     }
-
-    return data;
   }
 
   /**
-   * Desactivar usuario (soft delete)
+   * Crear registro en ticket_detail (historial)
    */
-  async deactivateUser(userId: string): Promise<void> {
+  private async createTicketDetail(
+    ticketHeaderId: string,
+    detail: {
+      sw_status: TicketStatus;
+      assigned_user_id?: string;
+      description?: string;
+    }
+  ): Promise<void> {
     const { error } = await supabase
-      .from('tb_user')
-      .update({ sw_active: 0 })
-      .eq('id', userId);
+      .from('md_ticket_detail')
+      .insert({
+        ticket_header_id: ticketHeaderId,
+        sw_status: detail.sw_status,
+        assigned_user_id: detail.assigned_user_id,
+        description: detail.description
+      });
 
     if (error) {
-      throw new Error(`Error al desactivar usuario: ${error.message}`);
+      console.error('Error al crear ticket detail:', error);
+      // No lanzamos error para no bloquear la operación principal
     }
   }
 
   /**
-   * Activar usuario
+   * Obtener estadísticas de tickets
    */
-  async activateUser(userId: string): Promise<void> {
-    const { error } = await supabase
-      .from('tb_user')
-      .update({ sw_active: 1 })
-      .eq('id', userId);
+  async getTicketStats(userId?: string): Promise<any> {
+    let query = supabase
+      .from('md_ticket_header')
+      .select('sw_status, priority_id');
+
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
-      throw new Error(`Error al activar usuario: ${error.message}`);
+      throw new Error(`Error al obtener estadísticas: ${error.message}`);
     }
-  }
 
-  /**
-   * Verificar si un usuario es administrador
-   */
-  async isAdmin(userId: string): Promise<boolean> {
-    const user = await this.getUserById(userId);
-    return user?.rol_id === 3; // Asumiendo que 3 = Administrador
-  }
+    // Contar por estado
+    const byStatus = data.reduce((acc: any, ticket: any) => {
+      acc[ticket.sw_status] = (acc[ticket.sw_status] || 0) + 1;
+      return acc;
+    }, {});
 
-  /**
-   * Verificar si un usuario es agente o administrador
-   */
-  async isAgentOrAdmin(userId: string): Promise<boolean> {
-    const user = await this.getUserById(userId);
-    return user ? [2, 3].includes(user.rol_id) : false;
+    // Contar por prioridad
+    const byPriority = data.reduce((acc: any, ticket: any) => {
+      acc[ticket.priority_id] = (acc[ticket.priority_id] || 0) + 1;
+      return acc;
+    }, {});
+
+    return {
+      total: data.length,
+      byStatus,
+      byPriority
+    };
   }
 }
