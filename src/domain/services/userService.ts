@@ -171,7 +171,7 @@ export class UserService {
    */
   async isAdmin(userId: string): Promise<boolean> {
     const user = await this.getUserById(userId);
-    return user?.rol_id === 3; // Asumiendo que 3 = Administrador
+    return user?.rol_id === 3;
   }
 
   /**
