@@ -42,7 +42,7 @@ export class CategoryService {
   async createCategory(input: CategoryInput): Promise<Category> {
     const { data, error } = await supabase
       .from('tb_category')
-      .insert({ name: input.name })
+      .insert({ description: input.name })
       .select()
       .single();
 
