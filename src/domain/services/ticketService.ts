@@ -49,7 +49,7 @@ export class TicketService {
         *,
         tb_category!md_ticket_header_category_id_fkey (
           id,
-          name
+          description
         ),
         tb_priority!md_ticket_header_priority_id_fkey (
           id,
