@@ -1,5 +1,7 @@
 import express from 'express';
 import { verifyAuth } from '../infrastructure/authMiddleware.js';
+import { upload } from '../infrastructure/multerConfig.js';
+import { createTicketWithImages, getTicketWithImages } from '../controller/ticketController.js';
 
 // Importar controladores
 import {
@@ -115,6 +117,13 @@ router.put('/users/:userId/deactivate', verifyAuth, deactivateUser);
 router.put('/users/:userId/activate', verifyAuth, activateUser);
 
 // ==================== RUTAS DE TICKETS ====================
+
+
+// Ruta para crear ticket con imágenes
+router.post('/tickets/with-images', verifyAuth, upload.array('images', 5), createTicketWithImages);
+
+// Ruta para obtener ticket con imágenes
+router.get('/tickets/:ticketId/with-images', verifyAuth, getTicketWithImages);
 
 /**
  * @route   POST /api/tickets

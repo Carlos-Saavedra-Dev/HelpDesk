@@ -2,9 +2,17 @@ import { Request, Response } from 'express';
 import { TicketService } from '../domain/services/ticketService.js';
 import { UserService } from '../domain/services/userService.js';
 import { TicketStatus, TicketPriority } from '../domain/types/index.js';
+import { UploadService } from '../domain/services/uploadService.js';
+import { MultimediaService } from '../domain/services/multimediaService.js';
+import { EmailService } from '../domain/services/emailService.js';
+import { PriorityNames } from '../domain/types/index.js';
 
 const ticketService = new TicketService();
 const userService = new UserService();
+const uploadService = new UploadService();
+const multimediaService = new MultimediaService();
+const emailService = new EmailService();
+
 
 /**
  * RFU-2: Crear un nuevo ticket
@@ -36,6 +44,12 @@ export const createTicket = async (req: Request, res: Response) => {
       priority_id
     });
 
+    await emailService.notifyTicketCreated(user.email, {
+  id: ticket.id,
+  title: ticket.title,
+  priority: PriorityNames[ticket.priority_id]
+});
+
     res.status(201).json({
       success: true,
       ticket,
@@ -44,6 +58,117 @@ export const createTicket = async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('Error en createTicket:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const createTicketWithImages = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { title, description, category_id, priority_id } = req.body;
+    const files = (req as any).files; // Multer adjunta los archivos aquí
+
+    // Validaciones
+    if (!title || !description || !category_id || !priority_id) {
+      return res.status(400).json({
+        error: 'Datos incompletos',
+        message: 'title, description, category_id y priority_id son requeridos'
+      });
+    }
+
+    if (![1, 2, 3].includes(parseInt(priority_id))) {
+      return res.status(400).json({
+        error: 'Prioridad inválida',
+        message: 'priority_id debe ser: 1 (Baja), 2 (Media), 3 (Alta)'
+      });
+    }
+
+    // Crear el ticket
+    const ticket = await ticketService.createTicket(user.id, {
+      title,
+      description,
+      category_id: parseInt(category_id),
+      priority_id: parseInt(priority_id)
+    });
+
+    // Si hay archivos adjuntos, subirlos
+    const uploadedFiles = [];
+    if (files && files.length > 0) {
+      for (const file of files) {
+        // Validar tipo y tamaño
+        if (!uploadService.isValidFileType(file.mimetype)) {
+          continue; // Skip archivos no permitidos
+        }
+
+        if (!uploadService.isValidFileSize(file.size)) {
+          continue; // Skip archivos muy grandes
+        }
+
+        // Subir a Supabase Storage
+        const fileUrl = await uploadService.uploadFile(
+          file.buffer,
+          file.originalname,
+          file.mimetype
+        );
+
+        // Guardar referencia en la base de datos
+        const multimedia = await multimediaService.uploadFile(ticket.id, {
+          type: file.mimetype,
+          link: fileUrl
+        });
+
+        uploadedFiles.push(multimedia);
+      }
+    }
+
+    await emailService.notifyTicketCreated(user.email, {
+      id: ticket.id,
+      title: ticket.title,
+      priority: PriorityNames[ticket.priority_id]
+    });
+
+    res.status(201).json({
+      success: true,
+      ticket,
+      attachments: uploadedFiles,
+      message: 'Ticket creado exitosamente'
+    });
+
+  } catch (error: any) {
+    console.error('Error en createTicketWithImages:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * Obtener ticket con sus imágenes
+ */
+export const getTicketWithImages = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { ticketId } = req.params;
+
+    const ticket = await ticketService.getTicketById(ticketId);
+
+    if (!ticket) {
+      return res.status(404).json({
+        error: 'Ticket no encontrado'
+      });
+    }
+
+    // Obtener archivos adjuntos
+    const attachments = await multimediaService.getTicketFiles(ticketId);
+
+    res.json({
+      success: true,
+      ticket: {
+        ...ticket,
+        attachments
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error en getTicketWithImages:', error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -179,6 +304,15 @@ export const assignTicket = async (req: Request, res: Response) => {
 
     await ticketService.assignTicket(ticketId, agente_id);
 
+    const ticket = await ticketService.getTicketById(ticketId);
+
+    await emailService.notifyTicketAssigned(agent.email, {
+      id: ticketId,
+      title: ticket.title,
+      description: ticket.description,
+      priority: PriorityNames[ticket.priority_id as TicketPriority]
+    });
+
     res.json({
       success: true,
       message: 'Ticket asignado exitosamente'
@@ -189,6 +323,7 @@ export const assignTicket = async (req: Request, res: Response) => {
     res.status(500).json({ error: error.message });
   }
 };
+
 
 /**
  * RFA-4: Cambiar estado del ticket
@@ -216,8 +351,16 @@ export const updateTicketStatus = async (req: Request, res: Response) => {
         message: 'sw_status debe ser: 1-7 (Abierto, Asignado, En Progreso, Entregado, Devuelto, Resuelto, Cerrado)'
       });
     }
-
+    
+    const ticket = await ticketService.getTicketById(ticketId);
     await ticketService.updateTicketStatus(ticketId, sw_status, description);
+    
+    await emailService.notifyStatusChange(ticket.user.email, {
+      id: ticketId,
+      title: ticket.title,
+      oldStatus: ticket.sw_status,
+      newStatus: sw_status
+    });
 
     res.json({
       success: true,
