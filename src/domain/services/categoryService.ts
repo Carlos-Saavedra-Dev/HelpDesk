@@ -9,7 +9,7 @@ export class CategoryService {
     const { data, error } = await supabase
       .from('tb_category')
       .select('*')
-      .order('name', { ascending: true });
+      .order('description', { ascending: true });
 
     if (error) {
       throw new Error(`Error al obtener categorías: ${error.message}`);
