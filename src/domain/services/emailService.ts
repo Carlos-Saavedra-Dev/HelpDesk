@@ -1,14 +1,21 @@
-import { Resend } from 'resend';
+import sgMail from '@sendgrid/mail';
 import { TicketStatus, TicketStatusNames } from '../types/index.js';
 
 export class EmailService {
-  private resend: Resend;
+
+    
   private fromEmail: string;
 
   constructor() {
-    this.resend = new Resend(process.env.RESEND_API_KEY);
-    // Usa tu dominio verificado en Resend, o el dominio de prueba
-    this.fromEmail = process.env.EMAIL_FROM || 'onboarding@resend.dev';
+    const apiKey = process.env.SENDGRID_API_KEY;
+    this.fromEmail = process.env.EMAIL_FROM || 'pijaodbadmn@gmail.com';
+    
+    if (!apiKey) {
+      console.warn('⚠️ SENDGRID_API_KEY no está configurado');
+      return;
+    }
+    
+    sgMail.setApiKey(apiKey);
   }
 
   /**
@@ -20,9 +27,12 @@ export class EmailService {
     priority: string;
   }): Promise<void> {
     try {
-      await this.resend.emails.send({
-        from: this.fromEmail,
+      await sgMail.send({
         to: userEmail,
+        from: {
+          email: this.fromEmail,
+          name: 'Helpdesk Support'
+        },
         subject: `✅ Ticket creado: ${ticketData.title}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -45,8 +55,8 @@ export class EmailService {
         `
       });
       console.log(`✅ Email enviado a ${userEmail} - Ticket creado`);
-    } catch (error) {
-      console.error('❌ Error al enviar email:', error);
+    } catch (error: any) {
+      console.error('❌ Error al enviar email:', error.response?.body || error);
     }
   }
 
@@ -63,9 +73,12 @@ export class EmailService {
     }
   ): Promise<void> {
     try {
-      await this.resend.emails.send({
-        from: this.fromEmail,
+      await sgMail.send({
         to: agentEmail,
+        from: {
+          email: this.fromEmail,
+          name: 'Helpdesk Support'
+        },
         subject: `🎫 Nuevo ticket asignado: ${ticketData.title}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -84,8 +97,8 @@ export class EmailService {
         `
       });
       console.log(`✅ Email enviado a ${agentEmail} - Ticket asignado`);
-    } catch (error) {
-      console.error('❌ Error al enviar email:', error);
+    } catch (error: any) {
+      console.error('❌ Error al enviar email:', error.response?.body || error);
     }
   }
 
@@ -105,9 +118,12 @@ export class EmailService {
     const newStatusName = TicketStatusNames[ticketData.newStatus];
 
     try {
-      await this.resend.emails.send({
-        from: this.fromEmail,
+      await sgMail.send({
         to: userEmail,
+        from: {
+          email: this.fromEmail,
+          name: 'Helpdesk Support'
+        },
         subject: `🔄 Actualización de ticket: ${ticketData.title}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -126,8 +142,8 @@ export class EmailService {
         `
       });
       console.log(`✅ Email enviado a ${userEmail} - Cambio de estado`);
-    } catch (error) {
-      console.error('❌ Error al enviar email:', error);
+    } catch (error: any) {
+      console.error('❌ Error al enviar email:', error.response?.body || error);
     }
   }
 
@@ -144,9 +160,12 @@ export class EmailService {
     messageContent: string
   ): Promise<void> {
     try {
-      await this.resend.emails.send({
-        from: this.fromEmail,
+      await sgMail.send({
         to: recipientEmail,
+        from: {
+          email: this.fromEmail,
+          name: 'Helpdesk Support'
+        },
         subject: `💬 Nuevo mensaje en ticket: ${ticketData.title}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -166,8 +185,8 @@ export class EmailService {
         `
       });
       console.log(`✅ Email enviado a ${recipientEmail} - Nuevo mensaje`);
-    } catch (error) {
-      console.error('❌ Error al enviar email:', error);
+    } catch (error: any) {
+      console.error('❌ Error al enviar email:', error.response?.body || error);
     }
   }
 
@@ -182,9 +201,12 @@ export class EmailService {
     }
   ): Promise<void> {
     try {
-      await this.resend.emails.send({
-        from: this.fromEmail,
+      await sgMail.send({
         to: userEmail,
+        from: {
+          email: this.fromEmail,
+          name: 'Helpdesk Support'
+        },
         subject: `✅ Ticket resuelto: ${ticketData.title}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -201,8 +223,8 @@ export class EmailService {
         `
       });
       console.log(`✅ Email enviado a ${userEmail} - Ticket resuelto`);
-    } catch (error) {
-      console.error('❌ Error al enviar email:', error);
+    } catch (error: any) {
+      console.error('❌ Error al enviar email:', error.response?.body || error);
     }
   }
 }
