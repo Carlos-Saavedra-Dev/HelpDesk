@@ -328,6 +328,9 @@ export const assignTicket = async (req: Request, res: Response) => {
 /**
  * RFA-4: Cambiar estado del ticket
  */
+/**
+ * RFA-4: Cambiar estado del ticket
+ */
 export const updateTicketStatus = async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
@@ -351,16 +354,29 @@ export const updateTicketStatus = async (req: Request, res: Response) => {
         message: 'sw_status debe ser: 1-7 (Abierto, Asignado, En Progreso, Entregado, Devuelto, Resuelto, Cerrado)'
       });
     }
-    
-    const ticket = await ticketService.getTicketById(ticketId);
+
+    // Obtener el ticket ANTES de actualizarlo para tener el estado anterior
+    const ticketBefore = await ticketService.getTicketById(ticketId);
+    const oldStatus = ticketBefore.sw_status;
+
+    // Actualizar el estado
     await ticketService.updateTicketStatus(ticketId, sw_status, description);
+
+    // Obtener el ticket actualizado CON la información del usuario
+    const ticket = await ticketService.getTicketById(ticketId);
+
+    // Obtener el email del usuario del ticket
+    const ticketOwner = await userService.getUserById(ticket.user_id);
     
-    await emailService.notifyStatusChange(ticket.user.email, {
-      id: ticketId,
-      title: ticket.title,
-      oldStatus: ticket.sw_status,
-      newStatus: sw_status
-    });
+    if (ticketOwner && ticketOwner.email) {
+      // Enviar notificación de cambio de estado
+      await emailService.notifyStatusChange(ticketOwner.email, {
+        id: ticketId,
+        title: ticket.title,
+        oldStatus: oldStatus as TicketStatus,
+        newStatus: sw_status as TicketStatus
+      });
+    }
 
     res.json({
       success: true,
