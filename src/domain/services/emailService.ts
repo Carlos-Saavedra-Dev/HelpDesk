@@ -2,8 +2,6 @@ import sgMail from '@sendgrid/mail';
 import { TicketStatus, TicketStatusNames } from '../types/index.js';
 
 export class EmailService {
-
-    
   private fromEmail: string;
 
   constructor() {
