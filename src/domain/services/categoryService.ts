@@ -56,10 +56,10 @@ export class CategoryService {
   /**
    * Actualizar una categoría (solo Administradores)
    */
-  async updateCategory(categoryId: number, name: string): Promise<Category> {
+  async updateCategory(categoryId: number, description: string): Promise<Category> {
     const { data, error } = await supabase
       .from('tb_category')
-      .update({ name })
+      .update({ description })
       .eq('id', categoryId)
       .select()
       .single();
